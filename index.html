@@ -1,0 +1,1091 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#0f172a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="打卡">
+<!-- 故意不挂 manifest：localhost 上挂 manifest 会让浏览器判定为「可安装 PWA」，
+     进而走 WebAPK 铸造（需 Google 服务器回抓本机地址，必然失败且界面无任何提示）。
+     不挂 manifest 时浏览器会退化成直接创建本地快捷方式。 -->
+<link rel="apple-touch-icon" href="./apple-touch-icon.png">
+<link rel="icon" href="./icon-192.png"><link rel="shortcut icon" href="./icon-192.png">
+<title>工时打卡</title>
+<style>
+:root{
+  --bg:#f5f6f8; --card:#fff; --fg:#111827; --sub:#6b7280; --line:#e5e7eb;
+  --acc:#2563eb; --acc2:#1d4ed8; --ok:#059669; --warn:#d97706; --danger:#dc2626;
+}
+@media (prefers-color-scheme:dark){
+  :root{--bg:#0f172a;--card:#1e293b;--fg:#f1f5f9;--sub:#94a3b8;--line:#334155;--acc:#3b82f6;--acc2:#60a5fa;}
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0}
+body{
+  background:var(--bg);color:var(--fg);
+  font:15px/1.5 -apple-system,BlinkMacSystemFont,"PingFang SC","Noto Sans CJK SC","Microsoft YaHei",sans-serif;
+  padding-bottom:calc(66px + env(safe-area-inset-bottom));
+}
+header{
+  position:sticky;top:0;z-index:20;background:var(--card);border-bottom:1px solid var(--line);
+  padding:calc(10px + env(safe-area-inset-top)) 16px 10px;
+  display:flex;align-items:center;justify-content:space-between;
+}
+header h1{font-size:17px;margin:0;font-weight:600;letter-spacing:.5px}
+header .clock{font-size:13px;color:var(--sub);font-variant-numeric:tabular-nums}
+main{padding:14px 14px 24px;max-width:640px;margin:0 auto}
+.page{display:none}
+.page.on{display:block}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
+.row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.lbl{font-size:13px;color:var(--sub)}
+.big{font-size:26px;font-weight:600;font-variant-numeric:tabular-nums}
+.mono{font-variant-numeric:tabular-nums}
+.sep{height:1px;background:var(--line);margin:12px -14px}
+.punchbox{display:flex;gap:10px;margin-top:12px}
+button{
+  font:inherit;border:1px solid var(--line);background:var(--card);color:var(--fg);
+  border-radius:10px;padding:10px 14px;cursor:pointer;transition:.15s;
+}
+button:active{transform:scale(.97)}
+button.primary{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600}
+button.primary.done{background:var(--ok);border-color:var(--ok)}
+button.warn{background:var(--warn);border-color:var(--warn);color:#fff;font-weight:600}
+button.warn.done{background:var(--ok);border-color:var(--ok)}
+button.ghost{background:transparent}
+button.danger{color:var(--danger);border-color:var(--danger)}
+button.wide{flex:1}
+button.sm{padding:6px 10px;font-size:13px}
+input[type=time],input[type=text],input[type=number],input[type=date],select{
+  font:inherit;padding:9px 10px;border-radius:9px;border:1px solid var(--line);
+  background:var(--bg);color:var(--fg);min-width:0;
+}
+input[type=time]{font-variant-numeric:tabular-nums}
+.quick{font-size:12px;color:var(--acc);background:none;border:none;padding:4px 0;cursor:pointer}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;text-align:center}
+.stat .v{font-size:19px;font-weight:600;font-variant-numeric:tabular-nums}
+.stat .k{font-size:12px;color:var(--sub);margin-top:2px}
+.monthbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;gap:8px}
+.monthbar .m{font-size:16px;font-weight:600}
+.dayitem{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--line)}
+.dayitem:last-child{border-bottom:none}
+.dayitem .d{width:64px;flex:none}
+.dayitem .d b{font-size:14px;font-weight:600}
+.dayitem .d span{font-size:11px;color:var(--sub);display:block}
+.dayitem .t{flex:1;font-size:13px;color:var(--sub);font-variant-numeric:tabular-nums}
+.dayitem .h{text-align:right;font-size:13px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.tag{display:inline-block;font-size:11px;padding:1px 6px;border-radius:6px;background:rgba(217,119,6,.15);color:var(--warn);margin-left:4px}
+.tag.rest{background:rgba(107,114,128,.15);color:var(--sub)}
+.item-click{cursor:pointer}
+canvas{width:100%;display:block}
+.tabbar{
+  position:fixed;left:0;right:0;bottom:0;z-index:30;display:flex;background:var(--card);
+  border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom);
+}
+.tabbar button{
+  flex:1;border:none;background:none;border-radius:0;padding:9px 0 8px;font-size:11px;color:var(--sub);
+  display:flex;flex-direction:column;align-items:center;gap:2px;
+}
+.tabbar button.on{color:var(--acc);font-weight:600}
+.tabbar svg{width:20px;height:20px;fill:currentColor}
+.mask{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:50;display:none;align-items:flex-end}
+.mask.on{display:flex}
+.sheet{background:var(--card);width:100%;max-width:640px;margin:0 auto;border-radius:16px 16px 0 0;
+  padding:16px 16px calc(16px + env(safe-area-inset-bottom));max-height:88vh;overflow:auto}
+.sheet h3{margin:0 0 14px;font-size:16px}
+.f{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px solid var(--line)}
+.f:last-of-type{border-bottom:none}
+.f .k{font-size:14px;flex:1}
+.f .k small{display:block;color:var(--sub);font-size:11px}
+.switch{width:46px;height:27px;border-radius:14px;background:var(--line);position:relative;flex:none;transition:.2s;border:none;padding:0}
+.switch::after{content:"";position:absolute;top:3px;left:3px;width:21px;height:21px;border-radius:50%;background:#fff;transition:.2s;box-shadow:0 1px 3px rgba(0,0,0,.3)}
+.switch.on{background:var(--acc)}
+.switch.on::after{transform:translateX(19px)}
+.empty{text-align:center;color:var(--sub);font-size:13px;padding:28px 0}
+.toast{position:fixed;left:50%;bottom:96px;transform:translateX(-50%) translateY(10px);
+  background:rgba(17,24,39,.94);color:#fff;padding:9px 16px;border-radius:10px;font-size:13px;
+  opacity:0;pointer-events:none;transition:.25s;z-index:99;white-space:nowrap}
+.toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+.hint{font-size:12px;color:var(--sub);line-height:1.6}
+/* 分段打卡 */
+.seg{display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--line)}
+.seg:last-of-type{border-bottom:none}
+.seg .n{width:18px;height:18px;flex:none;border-radius:50%;background:var(--line);color:var(--sub);
+  font-size:11px;display:flex;align-items:center;justify-content:center}
+.seg.open .n{background:var(--acc);color:#fff}
+.seg .arw{color:var(--sub);font-size:12px;flex:none}
+.seg input[type=time]{flex:1;min-width:0;padding:6px 8px;font-size:14px}
+.seg .dur{font-size:12px;color:var(--sub);min-width:54px;text-align:right;
+  font-variant-numeric:tabular-nums;flex:none}
+.seg .del{flex:none;width:26px;height:26px;padding:0;border-radius:50%;color:var(--sub);
+  font-size:16px;line-height:1;border-color:transparent;background:transparent}
+.seg .del:active{color:var(--danger)}
+.segot{font-size:11px;color:var(--warn);padding:0 0 7px 26px;font-variant-numeric:tabular-nums}
+details{border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:var(--card);margin-bottom:12px}
+summary{cursor:pointer;font-size:14px;font-weight:600}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>工时打卡</h1>
+  <div class="clock" id="liveclock">--:--:--</div>
+</header>
+
+<main>
+
+<!-- ============ 今日 ============ -->
+<section class="page on" id="p-today">
+  <div class="card">
+    <div class="row">
+      <div>
+        <div class="big" id="t-date">--</div>
+        <div class="lbl" id="t-week">--</div>
+      </div>
+      <div style="text-align:right">
+        <div class="lbl">已工作</div>
+        <div class="big mono" id="t-live">0h00m</div>
+      </div>
+    </div>
+    <div class="sep"></div>
+    <div id="seg-list"></div>
+    <div class="punchbox" style="margin-top:12px">
+      <button class="wide primary" id="btn-in">上班打卡</button>
+      <button class="wide warn" id="btn-out">下班打卡</button>
+    </div>
+    <div class="sep"></div>
+    <div class="row">
+      <div class="lbl">今日合计</div>
+      <div style="text-align:right">
+        <span class="big mono" id="t-work">0h00m</span>
+        <span class="tag" id="t-ot" style="display:none"></span>
+      </div>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <div class="lbl">备注</div>
+      <input type="text" id="t-note" placeholder="可留空" style="flex:1;margin-left:10px">
+    </div>
+  </div>
+
+  <details>
+    <summary>加班手动填写 / 标记休息日</summary>
+    <div style="margin-top:10px">
+      <div class="row">
+        <div class="lbl">加班起</div>
+        <input type="time" id="ot-start" step="60">
+        <div class="lbl">止</div>
+        <input type="time" id="ot-end" step="60">
+      </div>
+      <div class="hint" style="margin-top:8px">留空 = 按每段超过标准下班时间的部分自动计算</div>
+      <div class="hint" style="margin-top:6px" id="ot-hint"></div>
+      <div class="f" style="margin-top:8px">
+        <div class="k">今天算休息日<small>勾上后全天计为加班</small></div>
+        <button class="switch" id="sw-rest"></button>
+      </div>
+    </div>
+  </details>
+</section>
+
+<!-- ============ 记录 ============ -->
+<section class="page" id="p-list">
+  <div class="monthbar">
+    <button class="sm ghost" id="list-prev">‹</button>
+    <div class="m mono" id="list-month">----/--</div>
+    <button class="sm ghost" id="list-next">›</button>
+  </div>
+  <div class="card" id="list-month-sum"></div>
+  <div class="card" id="list-body"></div>
+</section>
+
+<!-- ============ 统计 ============ -->
+<section class="page" id="p-stats">
+  <div class="monthbar">
+    <button class="sm ghost" id="st-prev">‹</button>
+    <div class="m mono" id="st-month">----/--</div>
+    <button class="sm ghost" id="st-next">›</button>
+  </div>
+  <div class="grid2" id="st-cards"></div>
+  <div class="card" style="margin-top:12px">
+    <div class="lbl" style="margin-bottom:10px">近 14 天工时（<span style="color:var(--warn)">橙色=加班</span>）</div>
+    <canvas id="chart" height="200"></canvas>
+  </div>
+  <div class="card" id="st-rank"></div>
+</section>
+
+<!-- ============ 设置 ============ -->
+<section class="page" id="p-set">
+  <div class="card">
+    <div class="f">
+      <div class="k">标准上班时间</div>
+      <input type="time" id="s-start" step="60">
+    </div>
+    <div class="f">
+      <div class="k">标准下班时间<small>超过这个点即算加班</small></div>
+      <input type="time" id="s-end" step="60">
+    </div>
+    <div class="f">
+      <div class="k">午休扣除（分钟）</div>
+      <input type="number" id="s-lunch" min="0" max="240" step="15" style="width:80px">
+    </div>
+    <div class="f">
+      <div class="k">从工时中扣除午休<small>工时&gt;4h 且班次跨过中午 12–13 点才扣</small></div>
+      <button class="switch" id="sw-lunch"></button>
+    </div>
+    <div class="f">
+      <div class="k">周末也算工作日<small>开启后周六周日不算加班</small></div>
+      <button class="switch" id="sw-weekend"></button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="lbl" style="margin-bottom:10px">数据（保存在本机浏览器，建议定期导出备份）</div>
+    <div class="punchbox" style="flex-wrap:wrap;gap:8px">
+      <button id="btn-xlsx">导出 Excel</button>
+      <button id="btn-csv">导出 CSV</button>
+      <button id="btn-json">导出备份</button>
+      <button id="btn-copy">复制备份</button>
+      <button id="btn-import">导入备份</button>
+      <button class="danger" id="btn-clear">清空全部</button>
+    </div>
+    <div class="hint" style="margin-top:10px" id="d-count"></div>
+  </div>
+
+  <details>
+    <summary>怎么算的？</summary>
+    <div class="hint" style="margin-top:8px">
+      一天可以有<strong>多段</strong>上下班：点一次「上班打卡」开一段，点「下班打卡」结束本段，再点「上班打卡」就是新的一段。<br>
+      工时 = 各段 (下班 − 上班) 之和；某段若跨过中午 12–13 点且时长&gt;4h，才扣一次午休。<br>
+      下班早于上班，自动按跨天（次日）计算。<br>
+      加班 = <strong>每一段里超过标准下班时间的部分</strong>分别累加（起点取「标准下班」与该段「上班」中较晚者）。休息日则每段全算加班。<br>
+      也可以在上面手动填「加班起止」直接覆盖自动结果。导出时加班会写到时段级（分段明细 + 加班明细两张表）。
+    </div>
+  </details>
+</section>
+
+</main>
+
+<nav class="tabbar">
+  <button class="on" data-page="today">
+    <svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm1 11h4v-2h-3V7h-2v6z"/></svg>今日</button>
+  <button data-page="list">
+    <svg viewBox="0 0 24 24"><path d="M4 4h16v2H4zm0 6h16v2H4zm0 6h10v2H4z"/></svg>记录</button>
+  <button data-page="stats">
+    <svg viewBox="0 0 24 24"><path d="M5 20h3V9H5v11zm5.5 0h3V4h-3v16zM16 20h3v-7h-3v7z"/></svg>统计</button>
+  <button data-page="set">
+    <svg viewBox="0 0 24 24"><path d="M12 8a4 4 0 100 8 4 4 0 000-8zm9 4a9 9 0 00-.1-1.3l2-1.6-2-3.4-2.4 1a9 9 0 00-2.2-1.3L15.9 2h-3.9l-.4 2.4a9 9 0 00-2.2 1.3l-2.4-1-2 3.4 2 1.6A9 9 0 003 12c0 .4 0 .9.1 1.3l-2 1.6 2 3.4 2.4-1c.7.6 1.4 1 2.2 1.3l.4 2.4h3.9l.4-2.4c.8-.3 1.5-.7 2.2-1.3l2.4 1 2-3.4-2-1.6c.1-.4.1-.9.1-1.3z"/></svg>设置</button>
+</nav>
+
+<div class="mask" id="mask"><div class="sheet" id="sheet"></div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+"use strict";
+
+/* ---------------- 数据层 ---------------- */
+var LS='workclock.v1';
+/* APK 里由原生桥提供存储（SharedPreferences），浏览器里退回 localStorage */
+var NATIVE=(typeof Minis!=='undefined'&&Minis&&Minis.available&&Minis.available());
+function rawGet(){
+  if(NATIVE){try{return Minis.storageGet()||'';}catch(e){}}
+  try{return localStorage.getItem(LS);}catch(e){return null;}
+}
+function rawSet(v){
+  if(NATIVE){try{Minis.storageSet(v);return;}catch(e){}}
+  try{localStorage.setItem(LS,v);}catch(e){toast('保存失败：存储空间不可用');}
+}
+var DEF={settings:{workStart:'09:00',workEnd:'18:00',lunch:60,deductLunch:true,weekendIsWork:false},records:{}};
+var DB=load();
+function load(){
+  try{
+    var s=rawGet();
+    if(s){var d=JSON.parse(s);
+      return {settings:Object.assign({},DEF.settings,d.settings||{}),records:d.records||{}};}
+  }catch(e){}
+  return {settings:Object.assign({},DEF.settings),records:{}};
+}
+function save(){rawSet(JSON.stringify(DB));}
+
+/* ---------------- 时间工具 ---------------- */
+function pad(n){return String(n).padStart(2,'0');}
+function keyOf(d){d=d||new Date();return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());}
+function nowHM(){var d=new Date();return pad(d.getHours())+':'+pad(d.getMinutes());}
+function toMin(t){if(!t||typeof t!=='string')return null;var p=t.split(':');if(p.length<2)return null;
+  var a=parseInt(p[0],10),b=parseInt(p[1],10);if(isNaN(a)||isNaN(b))return null;return a*60+b;}
+function fmtDur(min){
+  if(min==null||isNaN(min))return '--';
+  min=Math.max(0,Math.round(min));
+  var h=Math.floor(min/60),m=min%60;
+  return h+'h'+pad(m)+'m';
+}
+function fmtNum(min){return (min/60).toFixed(2);}
+function fmtT(min){
+  if(min==null)return '--';
+  min=Math.round(min);
+  if(min>=1440)return '次日'+pad(Math.floor((min-1440)/60))+':'+pad((min-1440)%60);
+  return pad(Math.floor(min/60))+':'+pad(min%60);
+}
+function dateObj(key){return new Date(key+'T00:00:00');}
+function wdName(key){return '周'+'日一二三四五六'[dateObj(key).getDay()];}
+function isRestKey(key,rec){
+  if(rec&&typeof rec.rest==='boolean')return rec.rest;
+  var w=dateObj(key).getDay();
+  if(DB.settings.weekendIsWork)return false;
+  return w===0||w===6;
+}
+function monthKey(key){return key.slice(0,7);}
+
+/* ---------------- 核心计算 ---------------- */
+/* 把记录规整成「分段」数组；兼容早期的单段数据 {in,out} */
+function segsOf(rec){
+  if(!rec)return [];
+  if(rec.segs&&rec.segs.length){
+    return rec.segs.map(function(s){return {in:s.in||'',out:s.out||''};});
+  }
+  if(rec.in||rec.out)return [{in:rec.in||'',out:rec.out||''}];
+  return [];
+}
+
+/* 单段计算：本段工时 + 本段加班区间 */
+function segCalc(sg,rest){
+  var s=DB.settings;
+  var inM=toMin(sg.in), outRaw=toMin(sg.out);
+  var outM=outRaw, cross=false;
+  if(inM!=null&&outRaw!=null&&outRaw<inM){outM=outRaw+1440;cross=true;}
+  var span=(inM!=null&&outM!=null&&outM>inM)?outM-inM:0;
+  // 只在班次真正跨过中午 12:00–13:00 时才扣午休（夜班不扣）
+  var coversNoon=(inM!=null&&outM!=null&&inM<=720&&outM>=780);
+  var lunch=(!rest&&s.deductLunch&&span>240&&coversNoon)?(Number(s.lunch)||0):0;
+  var work=Math.max(0,span-lunch);
+  var oS=null,oE=null,ot=0;
+  if(inM!=null&&outRaw!=null){
+    if(rest){
+      ot=work; oS=inM; oE=inM+work;              // 休息日：本段全天计加班
+    }else{
+      var we=toMin(s.workEnd);
+      if(we==null)we=1080;
+      oS=Math.max(we,inM);                        // 起点：不早于标准下班，也不早于本段上班
+      var v=outM-oS;
+      if(v<0)v+=1440;
+      if(v>720)v=0;                               // 防呆
+      ot=v; oE=oS+v;
+    }
+  }
+  return {inRaw:sg.in||'',outRaw:sg.out||'',inM:inM,outM:outM,cross:cross,
+          span:span,work:work,ot:ot,otStart:oS,otEnd:oE,both:(inM!=null&&outRaw!=null)};
+}
+
+/* 全天汇总 */
+function calc(key,rec){
+  rec=rec||{};
+  var rest=isRestKey(key,rec);
+  var segs=segsOf(rec);
+  var det=[],work=0,span=0,first=null,last=null;
+  segs.forEach(function(sg){
+    var d=segCalc(sg,rest);
+    det.push(d);
+    work+=d.work; span+=d.span;
+    if(d.inM!=null&&(first==null||d.inM<first))first=d.inM;
+    if(d.outM!=null&&(last==null||d.outM>last))last=d.outM;
+  });
+
+  // 加班：默认按每一段分别算（超过标准下班的部分），也支持手动覆盖
+  var ot=0, otAuto=true, oS=null, oE=null, ranges=[];
+  var mS=toMin(rec.otStart), mE=toMin(rec.otEnd);
+  if(mS!=null&&mE!=null){
+    otAuto=false;
+    if(mE<=mS)mE+=1440;
+    ot=Math.max(0,mE-mS);
+    oS=mS; oE=mS+ot;
+    ranges=[{start:oS,end:oE,ot:ot}];
+  }else{
+    det.forEach(function(d){
+      if(d.ot>0){ranges.push({start:d.otStart,end:d.otEnd,ot:d.ot}); ot+=d.ot;}
+    });
+    if(ranges.length){oS=ranges[0].start; oE=ranges[ranges.length-1].end;}
+  }
+
+  return {segs:segs,det:det,count:det.length,work:work,span:span,ot:ot,
+          otStart:oS,otEnd:oE,ranges:ranges,rest:rest,otAuto:otAuto,
+          firstIn:first,lastOut:last,
+          inRaw:det.length?det[0].inRaw:'',outRaw:det.length?det[det.length-1].outRaw:'',
+          both:(first!=null&&last!=null)};
+}
+
+/* ---------------- 通用 UI ---------------- */
+function toast(msg){
+  var t=document.getElementById('toast');
+  t.textContent=msg;t.classList.add('on');
+  clearTimeout(toast._t);toast._t=setTimeout(function(){t.classList.remove('on');},1800);
+}
+function $(id){return document.getElementById(id);}
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+
+/* ---------------- 页面切换 ---------------- */
+var curPage='today';
+document.querySelectorAll('.tabbar button').forEach(function(b){
+  b.addEventListener('click',function(){
+    curPage=b.dataset.page;
+    document.querySelectorAll('.tabbar button').forEach(function(x){x.classList.toggle('on',x===b);});
+    document.querySelectorAll('.page').forEach(function(p){p.classList.toggle('on',p.id==='p-'+curPage);});
+    render();
+  });
+});
+
+/* ---------------- 今日页 ---------------- */
+var todayKey=keyOf();
+var cur={segs:[],otStart:'',otEnd:'',note:'',rest:false};
+
+function loadToday(){
+  todayKey=keyOf();
+  var r=DB.records[todayKey]||{};
+  cur={segs:segsOf(r),otStart:r.otStart||'',otEnd:r.otEnd||'',note:r.note||'',
+       rest:(typeof r.rest==='boolean'?r.rest:isRestKey(todayKey,{}))};
+  $('ot-start').value=cur.otStart;
+  $('ot-end').value=cur.otEnd;
+  $('t-note').value=cur.note;
+  syncRestSwitch();
+  renderSegs();
+  refreshTodayUI();
+}
+function syncRestSwitch(){
+  $('sw-rest').classList.toggle('on',!!cur.rest);
+}
+
+/* 分段列表：结构变化（打卡/删除/加载）时才整体重建 */
+function renderSegs(){
+  var box=$('seg-list');
+  if(!cur.segs.length){
+    box.innerHTML='<div class="empty" style="padding:16px 0">今天还没有记录'+
+      '<br><span style="font-size:12px">点下面的「上班打卡」开始第一段</span></div>';
+    return;
+  }
+  var html='';
+  cur.segs.forEach(function(sg,i){
+    var d=segCalc(sg,cur.rest);
+    var open=(sg.in&&!sg.out);
+    html+='<div class="seg'+(open?' open':'')+'">'+
+      '<span class="n">'+(i+1)+'</span>'+
+      '<input type="time" data-i="'+i+'" data-f="in" value="'+esc(sg.in)+'" step="60">'+
+      '<span class="arw">→</span>'+
+      '<input type="time" data-i="'+i+'" data-f="out" value="'+esc(sg.out)+'" step="60">'+
+      '<span class="dur">'+((sg.in||sg.out)?fmtDur(d.work):'--')+'</span>'+
+      '<button class="del" data-del="'+i+'">×</button></div>';
+    if(d.ot>0){
+      html+='<div class="segot">加班 '+fmtT(d.otStart)+' → '+fmtT(d.otEnd)+'　'+fmtDur(d.ot)+'</div>';
+    }
+  });
+  box.innerHTML=html;
+
+  box.querySelectorAll('input[type=time]').forEach(function(el){
+    el.addEventListener('change',function(){
+      cur.segs[+el.dataset.i][el.dataset.f]=el.value;
+      persistToday();renderSegs();refreshTodayUI();
+    });
+  });
+  box.querySelectorAll('button.del').forEach(function(el){
+    el.addEventListener('click',function(){
+      cur.segs.splice(+el.dataset.del,1);
+      persistToday();renderSegs();refreshTodayUI();toast('已删除第 '+(+el.dataset.del+1)+' 段');
+    });
+  });
+}
+
+function refreshTodayUI(){
+  var d=new Date(todayKey+'T00:00:00');
+  $('t-date').textContent=(d.getMonth()+1)+'月'+d.getDate()+'日';
+  $('t-week').textContent=wdName(todayKey)+' · '+todayKey+(cur.rest?' · 休息日':'');
+  var c=calc(todayKey,cur);
+  $('t-work').textContent=fmtDur(c.work);
+  var tag=$('t-ot');
+  if(c.ot>0){
+    tag.style.display='';
+    tag.className='tag';
+    tag.textContent='加班 '+fmtDur(c.ot)+(c.otAuto?'':' *');
+  }else tag.style.display='none';
+
+  // 已工作：已完成段累加，进行中的段算到此刻
+  var live=0, nowM=null;
+  c.det.forEach(function(x,i){
+    if(x.both)live+=x.span;
+    else if(x.inM!=null){
+      if(nowM===null){var n=new Date();nowM=n.getHours()*60+n.getMinutes();}
+      var el=nowM-x.inM; if(el<0)el+=1440; live+=Math.max(0,el);
+    }
+  });
+  $('t-live').textContent=fmtDur(live);
+
+  var hint=c.rest
+    ? '今天是休息日：每段工时都计为加班。'
+    : '工作日：每一段超过标准下班 '+(DB.settings.workEnd||'18:00')+' 的部分计为加班。';
+  if(c.ranges.length){
+    hint+='　当前加班：'+c.ranges.map(function(r){return fmtT(r.start)+'→'+fmtT(r.end);}).join('、');
+  }
+  $('ot-hint').textContent=hint;
+
+  var last=cur.segs[cur.segs.length-1];
+  var openSeg=!!(last&&last.in&&!last.out);
+  $('btn-in').textContent=openSeg?'上班打卡（重打本段）':'上班打卡'+
+    (cur.segs.length&&!openSeg?'（新一段）':'');
+  $('btn-out').textContent=openSeg?'下班打卡（结束本段）':'下班打卡';
+  $('btn-out').classList.toggle('done',openSeg);
+}
+
+function punch(which){
+  var t=nowHM(), msg='';
+  var last=cur.segs[cur.segs.length-1];
+  if(which==='in'){
+    if(last&&last.in&&!last.out){
+      last.in=t; msg='本段上班时间改为 '+t;
+    }else{
+      cur.segs.push({in:t,out:''});
+      msg='第 '+cur.segs.length+' 段上班打卡 '+t;
+    }
+  }else{
+    if(!last||!last.in){ toast('还没有「上班打卡」，先打上班'); return; }
+    if(last.out){
+      cur.segs.push({in:'',out:t});
+      msg='上一段已结束，新开了一段，请补填上班时间';
+    }else{
+      last.out=t;
+      if(toMin(t)<=toMin(last.in))msg='下班打卡 '+t+'（已按跨天计算）';
+      else msg='下班打卡 '+t;
+    }
+  }
+  persistToday();renderSegs();refreshTodayUI();toast(msg);
+}
+
+function persistToday(){
+  cur.segs=cur.segs.filter(function(s){return s.in||s.out;});
+  var o={segs:cur.segs,rest:cur.rest};
+  if(cur.otStart||cur.otEnd){o.otStart=cur.otStart;o.otEnd=cur.otEnd;}
+  if(cur.note)o.note=cur.note;
+  var defRest=isRestKey(todayKey,{});
+  if(!cur.segs.length&&!cur.otStart&&!cur.otEnd&&!cur.note&&(cur.rest===defRest)){
+    delete DB.records[todayKey];
+  }else{
+    DB.records[todayKey]=o;
+  }
+  save();
+}
+
+['ot-start','ot-end','t-note'].forEach(function(id){
+  $(id).addEventListener('change',function(){
+    var map={'ot-start':'otStart','ot-end':'otEnd','t-note':'note'};
+    cur[map[id]]=$(id).value.trim();
+    persistToday();refreshTodayUI();
+  });
+});
+$('btn-in').addEventListener('click',function(){punch('in');});
+$('btn-out').addEventListener('click',function(){punch('out');});
+$('sw-rest').addEventListener('click',function(){
+  cur.rest=!cur.rest;syncRestSwitch();persistToday();renderSegs();refreshTodayUI();
+});
+
+/* ---------------- 记录页 ---------------- */
+var listMonth=monthKey(todayKey);
+function shiftMonth(mk,delta){
+  var y=parseInt(mk.slice(0,4),10),m=parseInt(mk.slice(5,7),10)-1+delta;
+  var d=new Date(y,m,1);
+  return d.getFullYear()+'-'+pad(d.getMonth()+1);
+}
+function monthKeys(mk){
+  var y=parseInt(mk.slice(0,4),10),m=parseInt(mk.slice(5,7),10);
+  var days=new Date(y,m,0).getDate(),out=[];
+  for(var i=1;i<=days;i++)out.push(mk+'-'+pad(i));
+  return out;
+}
+function renderList(){
+  $('list-month').textContent=listMonth.replace('-','/');
+  var keys=monthKeys(listMonth);
+  var n=0,work=0,ot=0,rows=[];
+  for(var i=keys.length-1;i>=0;i--){
+    var k=keys[i],r=DB.records[k];
+    if(!r)continue;
+    n++;var c=calc(k,r);work+=c.work;ot+=c.ot;
+    rows.push({k:k,r:r,c:c});
+  }
+  $('list-month-sum').innerHTML= n?
+    '<div class="grid3">'+
+      '<div><div class="lbl">出勤</div><div class="big mono">'+n+'<span style="font-size:13px">天</span></div></div>'+
+      '<div><div class="lbl">总工时</div><div class="big mono">'+fmtNum(work)+'</div></div>'+
+      '<div><div class="lbl">总加班</div><div class="big mono" style="color:var(--warn)">'+fmtNum(ot)+'</div></div>'+
+    '</div>'
+    : '<div class="empty">这个月还没有记录</div>';
+  if(!n){$('list-body').innerHTML='<div class="empty">点「今日」开始打卡</div>';return;}
+  var html='';
+  rows.forEach(function(o){
+    var c=o.c;
+    var segsTxt=c.det.map(function(d){return (d.inRaw||'--')+'→'+(d.outRaw||'--');}).join('<br>');
+    var otTxt=c.ranges.map(function(r){return fmtT(r.start)+'→'+fmtT(r.end);}).join('<br>');
+    html+='<div class="dayitem item-click" data-key="'+o.k+'">'+
+      '<div class="d"><b>'+(parseInt(o.k.slice(8),10))+'日</b><span>'+wdName(o.k)+
+        (c.rest?' 休':'')+(c.count>1?' · '+c.count+'段':'')+'</span></div>'+
+      '<div class="t">'+segsTxt+
+        (o.r.note?'<br><span style="font-size:11px">'+esc(o.r.note)+'</span>':'')+'</div>'+
+      '<div class="h">'+fmtDur(c.work)+
+        (c.ot>0?'<br><span class="tag">加班 '+fmtDur(c.ot)+'</span>'+
+          '<br><span style="font-size:11px;color:var(--sub)">'+otTxt+'</span>':'')+'</div>'+
+    '</div>';
+  });
+  $('list-body').innerHTML=html;
+  $('list-body').querySelectorAll('.item-click').forEach(function(el){
+    el.addEventListener('click',function(){openEditor(el.dataset.key);});
+  });
+}
+$('list-prev').addEventListener('click',function(){listMonth=shiftMonth(listMonth,-1);renderList();});
+$('list-next').addEventListener('click',function(){listMonth=shiftMonth(listMonth,1);renderList();});
+
+/* ---------------- 编辑弹层 ---------------- */
+function openEditor(key){
+  var r=DB.records[key]||{};
+  var rest=isRestKey(key,r);
+  var draft={segs:segsOf(r),otStart:r.otStart||'',otEnd:r.otEnd||'',note:r.note||''};
+  if(!draft.segs.length)draft.segs=[{in:'',out:''}];
+
+  $('sheet').innerHTML=
+    '<h3>'+key+' '+wdName(key)+'</h3>'+
+    '<div id="e-segs"></div>'+
+    '<button class="sm ghost" id="e-add" style="margin:8px 0 12px">+ 加一段</button>'+
+    '<div class="f"><div class="k">加班起<small>留空 = 按每段自动计算</small></div>'+
+      '<input type="time" id="e-ots" value="'+esc(draft.otStart)+'"></div>'+
+    '<div class="f"><div class="k">加班止</div><input type="time" id="e-ote" value="'+esc(draft.otEnd)+'"></div>'+
+    '<div class="f"><div class="k">休息日</div>'+
+      '<button class="switch'+(rest?' on':'')+'" id="e-rest"></button></div>'+
+    '<div class="f"><div class="k">备注</div>'+
+      '<input type="text" id="e-note" value="'+esc(draft.note)+'" style="flex:1;margin-left:10px"></div>'+
+    '<div class="hint" id="e-sum" style="margin:12px 0"></div>'+
+    '<div class="punchbox">'+
+      '<button class="wide primary" id="e-save">保存</button>'+
+      '<button class="wide danger" id="e-del">删除</button>'+
+      '<button class="wide ghost" id="e-cancel">取消</button>'+
+    '</div>';
+  $('mask').classList.add('on');
+
+  function drawSum(){
+    var c=calc(key,{segs:draft.segs,otStart:draft.otStart,otEnd:draft.otEnd,rest:rest});
+    var s='本日工时 '+fmtDur(c.work)+'（'+c.count+' 段）';
+    if(c.ot>0){
+      s+='　加班 '+fmtDur(c.ot)+'：'+
+        c.ranges.map(function(x){return fmtT(x.start)+'→'+fmtT(x.end);}).join('、')+
+        (c.otAuto?'':'（手动）');
+    }
+    $('e-sum').textContent=s;
+  }
+
+  function drawSegs(){
+    var box=$('e-segs'),h='';
+    draft.segs.forEach(function(sg,i){
+      h+='<div class="seg">'+
+        '<span class="n">'+(i+1)+'</span>'+
+        '<input type="time" data-i="'+i+'" data-f="in" value="'+esc(sg.in)+'" step="60">'+
+        '<span class="arw">→</span>'+
+        '<input type="time" data-i="'+i+'" data-f="out" value="'+esc(sg.out)+'" step="60">'+
+        '<button class="del" data-del="'+i+'">×</button></div>';
+    });
+    box.innerHTML=h;
+    box.querySelectorAll('input[type=time]').forEach(function(el){
+      el.addEventListener('change',function(){
+        draft.segs[+el.dataset.i][el.dataset.f]=el.value;
+        drawSum();
+      });
+    });
+    box.querySelectorAll('button.del').forEach(function(el){
+      el.addEventListener('click',function(){
+        draft.segs.splice(+el.dataset.del,1);
+        if(!draft.segs.length)draft.segs=[{in:'',out:''}];
+        drawSegs();
+      });
+    });
+    drawSum();
+  }
+
+  drawSegs();
+
+  $('e-add').addEventListener('click',function(){
+    draft.segs.push({in:'',out:''});
+    drawSegs();
+  });
+  $('e-ots').addEventListener('change',function(){draft.otStart=this.value;drawSum();});
+  $('e-ote').addEventListener('change',function(){draft.otEnd=this.value;drawSum();});
+  $('e-rest').addEventListener('click',function(){rest=!rest;this.classList.toggle('on',rest);drawSum();});
+  $('e-cancel').addEventListener('click',closeSheet);
+
+  $('e-save').addEventListener('click',function(){
+    var segs=draft.segs.filter(function(s){return s.in||s.out;});
+    var o={segs:segs,rest:rest};
+    if(draft.otStart||draft.otEnd){o.otStart=draft.otStart;o.otEnd=draft.otEnd;}
+    var nt=$('e-note').value.trim(); if(nt)o.note=nt;
+    if(!segs.length&&!o.otStart){delete DB.records[key];}
+    else DB.records[key]=o;
+    save();closeSheet();toast('已保存');
+    if(key===todayKey)loadToday();
+    render();
+  });
+  $('e-del').addEventListener('click',function(){
+    delete DB.records[key];save();closeSheet();toast('已删除');
+    if(key===todayKey)loadToday();
+    render();
+  });
+}
+function closeSheet(){$('mask').classList.remove('on');}
+$('mask').addEventListener('click',function(e){if(e.target===$('mask'))closeSheet();});
+
+/* ---------------- 统计页 ---------------- */
+var stMonth=monthKey(todayKey);
+function renderStats(){
+  $('st-month').textContent=stMonth.replace('-','/');
+  var keys=monthKeys(stMonth),n=0,work=0,ot=0,otDays=0,best={work:-1,k:''},dayMap={};
+  keys.forEach(function(k){
+    var r=DB.records[k];if(!r)return;
+    var c=calc(k,r);dayMap[k]=c;
+    if(c.work>0||c.both)n++;
+    work+=c.work;ot+=c.ot;
+    if(c.ot>0)otDays++;
+    if(c.work>best.work)best={work:c.work,k:k};
+  });
+  var avg=n?work/n:0;
+  $('st-cards').innerHTML=
+    stat(fmtNum(work)+'<span style="font-size:12px">h</span>','总工时')+
+    stat(fmtNum(ot)+'<span style="font-size:12px">h</span>','总加班','var(--warn)')+
+    stat(n,'出勤天数')+
+    stat(otDays,'加班天数','var(--warn)')+
+    stat(fmtNum(avg)+'<span style="font-size:12px">h</span>','日均工时')+
+    stat(best.k?fmtNum(best.work)+'<span style="font-size:12px">h</span>':'--','最长的一天');
+  // 加班明细（本月全部）
+  var arr=keys.map(function(k){var r=DB.records[k];return r?{k:k,c:calc(k,r)}:null;})
+               .filter(function(x){return x&&x.c.ot>0;})
+               .sort(function(a,b){return a.k<b.k?1:-1;});
+  if(arr.length){
+    var h='<div class="lbl" style="margin-bottom:8px">本月加班明细 · '+arr.length+' 天</div>'+
+      '<div class="dayitem" style="padding:4px 0;border-color:var(--line)">'+
+        '<div class="d" style="color:var(--sub);font-size:12px">日期</div>'+
+        '<div class="t" style="flex:1;color:var(--sub);font-size:12px">加班开始 → 结束</div>'+
+        '<div class="h" style="color:var(--sub);font-size:12px">时长</div></div>';
+    arr.forEach(function(x){
+      var c=x.c;
+      h+='<div class="dayitem">'+
+        '<div class="d"><b>'+(parseInt(x.k.slice(8),10))+'日</b><span>'+wdName(x.k)+
+          (c.rest?' 休':'')+(c.count>1?' '+c.count+'段':'')+'</span></div>'+
+        '<div class="t" style="flex:1">'+
+          c.ranges.map(function(r){return fmtT(r.start)+' → '+fmtT(r.end);}).join('<br>')+
+          ' <span style="font-size:11px">'+(c.otAuto?'自动':'手动')+'</span></div>'+
+        '<div class="h" style="color:var(--warn)">'+fmtDur(c.ot)+'</div></div>';
+    });
+    $('st-rank').innerHTML=h;
+  }else{
+    $('st-rank').innerHTML='<div class="empty">本月没有加班记录</div>';
+  }
+  drawChart();
+}
+function stat(v,k,color){
+  return '<div class="stat"><div class="v"'+(color?' style="color:'+color+'"':'')+'>'+v+'</div><div class="k">'+k+'</div></div>';
+}
+function drawChart(){
+  var cv=$('chart'),dpr=window.devicePixelRatio||1;
+  var W=cv.clientWidth||320,H=200;
+  cv.width=W*dpr;cv.height=H*dpr;cv.style.height=H+'px';
+  var g=cv.getContext('2d');g.setTransform(dpr,0,0,dpr,0,0);
+  g.clearRect(0,0,W,H);
+  var cs=getComputedStyle(document.body);
+  var sub=cs.getPropertyValue('--sub').trim()||'#888';
+  var line=cs.getPropertyValue('--line').trim()||'#ddd';
+  var cs2=getComputedStyle(document.documentElement);
+  var acc=cs2.getPropertyValue('--acc').trim()||'#2563eb';
+  var warn=cs2.getPropertyValue('--warn').trim()||'#d97706';
+  var days=[],t=new Date();
+  for(var i=13;i>=0;i--){var d=new Date(t.getFullYear(),t.getMonth(),t.getDate()-i);days.push(keyOf(d));}
+  var data=days.map(function(k){var r=DB.records[k];return r?calc(k,r):{work:0,ot:0};});
+  var maxv=8*60;
+  data.forEach(function(c){var top=Math.max(0,c.work-c.ot)+c.ot;if(top>maxv)maxv=top;});
+  maxv=Math.ceil(maxv/60)*60;
+  var padL=6,padR=6,padT=14,padB=26;
+  var cw=(W-padL-padR)/data.length;
+  // 网格
+  g.strokeStyle=line;g.lineWidth=1;g.font='10px sans-serif';g.fillStyle=sub;
+  for(var hh=0;hh<=maxv;hh+=Math.max(60,Math.round(maxv/4/60)*60)){
+    var y=padT+(H-padT-padB)*(1-hh/maxv);
+    g.beginPath();g.moveTo(padL,y);g.lineTo(W-padR,y);g.stroke();
+    g.fillText((hh/60)+'h',0,y-2);
+  }
+  var bw=Math.max(4,Math.min(20,cw*0.55));
+  data.forEach(function(c,i){
+    var x=padL+cw*i+(cw-bw)/2;
+    var base=Math.max(0,c.work-c.ot), top=c.ot;
+    var hbase=(H-padT-padB)*base/maxv, htop=(H-padT-padB)*top/maxv;
+    var y0=H-padB;
+    if(base>0){g.fillStyle=acc;g.fillRect(x,y0-hbase,bw,hbase);}
+    if(top>0){g.fillStyle=warn;g.fillRect(x,y0-hbase-htop,bw,htop);}
+    if(base<=0&&top<=0){g.fillStyle=line;g.fillRect(x,y0-2,bw,2);}
+    var d=dateObj(days[i]);
+    if(i%2===0||i===13){
+      g.fillStyle=(days[i]===todayKey)?acc:sub;
+      g.fillText(String(d.getDate()),x+bw/2-4,H-8);
+    }
+  });
+}
+$('st-prev').addEventListener('click',function(){stMonth=shiftMonth(stMonth,-1);renderStats();});
+$('st-next').addEventListener('click',function(){stMonth=shiftMonth(stMonth,1);renderStats();});
+
+/* ---------------- 设置页 ---------------- */
+function loadSettingsUI(){
+  $('s-start').value=DB.settings.workStart;
+  $('s-end').value=DB.settings.workEnd;
+  $('s-lunch').value=DB.settings.lunch;
+  $('sw-lunch').classList.toggle('on',!!DB.settings.deductLunch);
+  $('sw-weekend').classList.toggle('on',!!DB.settings.weekendIsWork);
+  var n=Object.keys(DB.records).length;
+  $('d-count').textContent='共 '+n+' 条记录 · 最早 '+(Object.keys(DB.records).sort()[0]||'--');
+}
+$('s-start').addEventListener('change',function(){DB.settings.workStart=this.value;save();render();});
+$('s-end').addEventListener('change',function(){DB.settings.workEnd=this.value;save();render();});
+$('s-lunch').addEventListener('change',function(){DB.settings.lunch=parseInt(this.value,10)||0;save();render();});
+$('sw-lunch').addEventListener('click',function(){DB.settings.deductLunch=!DB.settings.deductLunch;save();loadSettingsUI();render();});
+$('sw-weekend').addEventListener('click',function(){DB.settings.weekendIsWork=!DB.settings.weekendIsWork;save();loadSettingsUI();render();});
+
+/* ---------------- 极简 XLSX 生成（zip: store 无压缩 + OOXML，纯前端无依赖） ---------------- */
+var CRCT=(function(){var t=new Uint32Array(256);for(var n=0;n<256;n++){var c=n;
+  for(var k=0;k<8;k++)c=(c&1)?(0xEDB88320^(c>>>1)):(c>>>1);t[n]=c>>>0;}return t;})();
+function crc32(u8){var c=0xFFFFFFFF;for(var i=0;i<u8.length;i++)c=CRCT[(c^u8[i])&0xFF]^(c>>>8);return (c^0xFFFFFFFF)>>>0;}
+function zipStore(files){
+  var enc=new TextEncoder(),parts=[],cd=[],off=0,i;
+  for(i=0;i<files.length;i++){
+    var f=files[i],nb=enc.encode(f.name);
+    var data=(typeof f.data==='string')?enc.encode(f.data):f.data;
+    var crc=crc32(data);
+    var lh=new Uint8Array(30+nb.length),dv=new DataView(lh.buffer);
+    dv.setUint32(0,0x04034b50,true);dv.setUint16(4,20,true);dv.setUint16(6,0x0800,true);
+    dv.setUint16(8,0,true);dv.setUint32(14,crc,true);
+    dv.setUint32(18,data.length,true);dv.setUint32(22,data.length,true);
+    dv.setUint16(26,nb.length,true);lh.set(nb,30);
+    parts.push(lh,data);
+    var ch=new Uint8Array(46+nb.length),cv=new DataView(ch.buffer);
+    cv.setUint32(0,0x02014b50,true);cv.setUint16(4,20,true);cv.setUint16(6,20,true);
+    cv.setUint16(8,0x0800,true);cv.setUint32(16,crc,true);
+    cv.setUint32(20,data.length,true);cv.setUint32(24,data.length,true);
+    cv.setUint16(28,nb.length,true);cv.setUint32(42,off,true);
+    ch.set(nb,46);cd.push(ch);off+=lh.length+data.length;
+  }
+  var cds=0;for(i=0;i<cd.length;i++)cds+=cd[i].length;
+  var eo=new Uint8Array(22),ev=new DataView(eo.buffer);
+  ev.setUint32(0,0x06054b50,true);ev.setUint16(8,files.length,true);ev.setUint16(10,files.length,true);
+  ev.setUint32(12,cds,true);ev.setUint32(16,off,true);
+  return new Blob(parts.concat(cd,[eo]),{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+}
+function colName(n){var s='';while(n>0){var m=(n-1)%26;s=String.fromCharCode(65+m)+s;n=Math.floor((n-1)/26);}return s;}
+function xesc(s){return String(s==null?'':s).replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];});}
+function sheetXML(rows,widths){
+  var x='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'+
+    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">';
+  if(widths&&widths.length){
+    x+='<cols>';
+    for(var i=0;i<widths.length;i++)x+='<col min="'+(i+1)+'" max="'+(i+1)+'" width="'+widths[i]+'" customWidth="1"/>';
+    x+='</cols>';
+  }
+  x+='<sheetData>';
+  for(var r=0;r<rows.length;r++){
+    var row=rows[r];
+    x+='<row r="'+(r+1)+'">';
+    for(var c=0;c<row.length;c++){
+      var v=row[c];
+      if(v===null||v===undefined||v==='')continue;
+      var ref=colName(c+1)+(r+1), st=(r===0)?' s="1"':'';
+      if(typeof v==='number'&&isFinite(v))x+='<c r="'+ref+'"'+st+'><v>'+v+'</v></c>';
+      else x+='<c r="'+ref+'" t="inlineStr"'+st+'><is><t xml:space="preserve">'+xesc(v)+'</t></is></c>';
+    }
+    x+='</row>';
+  }
+  return x+'</sheetData></worksheet>';
+}
+function xlsxBlob(sheets){
+  var P='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
+  var MAIN='http://schemas.openxmlformats.org/';
+  var ct=P+'<Types xmlns="'+MAIN+'package/2006/content-types">'+
+    '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'+
+    '<Default Extension="xml" ContentType="application/xml"/>'+
+    '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>';
+  var wb=P+'<workbook xmlns="'+MAIN+'spreadsheetml/2006/main" xmlns:r="'+MAIN+'officeDocument/2006/relationships"><sheets>';
+  var rels=P+'<Relationships xmlns="'+MAIN+'package/2006/relationships">';
+  var files=[];
+  for(var i=0;i<sheets.length;i++){
+    var n=i+1;
+    ct+='<Override PartName="/xl/worksheets/sheet'+n+'.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>';
+    wb+='<sheet name="'+xesc(sheets[i].name)+'" sheetId="'+n+'" r:id="rId'+n+'"/>';
+    rels+='<Relationship Id="rId'+n+'" Type="'+MAIN+'officeDocument/2006/relationships/worksheet" Target="worksheets/sheet'+n+'.xml"/>';
+    files.push({name:'xl/worksheets/sheet'+n+'.xml',data:sheetXML(sheets[i].rows,sheets[i].widths)});
+  }
+  ct+='<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>';
+  wb+='</sheets></workbook>';
+  rels+='<Relationship Id="rId'+(sheets.length+1)+'" Type="'+MAIN+'officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>';
+  var styles=P+'<styleSheet xmlns="'+MAIN+'spreadsheetml/2006/main">'+
+    '<fonts count="2"><font><sz val="11"/><name val="Calibri"/></font>'+
+    '<font><b/><sz val="11"/><name val="Calibri"/></font></fonts>'+
+    '<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>'+
+    '<borders count="1"><border/></borders>'+
+    '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'+
+    '<cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'+
+    '<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs>'+
+    '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>';
+  files.push({name:'[Content_Types].xml',data:ct});
+  files.push({name:'_rels/.rels',data:P+'<Relationships xmlns="'+MAIN+'package/2006/relationships">'+
+    '<Relationship Id="rId1" Type="'+MAIN+'officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'});
+  files.push({name:'xl/workbook.xml',data:wb});
+  files.push({name:'xl/_rels/workbook.xml.rels',data:rels});
+  files.push({name:'xl/styles.xml',data:styles});
+  return zipStore(files);
+}
+function buildWorkbook(){
+  var ks=Object.keys(DB.records).sort();
+  var s1=[['日期','星期','段数','首次上班','最后下班','工时(小时)','加班(小时)','加班时段','休息日','备注']];
+  var s2=[['日期','星期','段','上班','下班','时长(小时)','加班开始','加班结束','加班(小时)']];
+  var s3=[['日期','星期','加班开始','加班结束','加班时长(小时)','时长','来源','备注']];
+  var tw=0,to=0;
+  ks.forEach(function(k){
+    var r=DB.records[k],c=calc(k,r);
+    tw+=c.work/60; to+=c.ot/60;
+    var otText=c.ranges.map(function(x){return fmtT(x.start)+'→'+fmtT(x.end);}).join('、');
+    s1.push([k,wdName(k),c.count,
+      c.firstIn!=null?fmtT(c.firstIn):'', c.lastOut!=null?fmtT(c.lastOut):'',
+      Number((c.work/60).toFixed(2)),
+      Number((c.ot/60).toFixed(2)),
+      otText, c.rest?'是':'', r.note||'']);
+    c.det.forEach(function(d,i){
+      s2.push([k,wdName(k),i+1,d.inRaw,d.outRaw,
+        Number((d.work/60).toFixed(2)),
+        d.ot>0?fmtT(d.otStart):'', d.ot>0?fmtT(d.otEnd):'',
+        Number((d.ot/60).toFixed(2))]);
+    });
+    c.ranges.forEach(function(x){
+      s3.push([k,wdName(k),fmtT(x.start),fmtT(x.end),
+        Number((x.ot/60).toFixed(2)),fmtDur(x.ot),c.otAuto?'自动':'手动',r.note||'']);
+    });
+  });
+  s1.push([]);s1.push(['合计','','','','',Number(tw.toFixed(2)),Number(to.toFixed(2)),'','','']);
+  s3.push([]);s3.push(['合计','','','',Number(to.toFixed(2)),'','','']);
+  return xlsxBlob([
+    {name:'打卡明细',rows:s1,widths:[12,7,6,11,11,11,11,26,8,22]},
+    {name:'分段明细',rows:s2,widths:[12,7,5,9,9,11,11,11,11]},
+    {name:'加班明细',rows:s3,widths:[12,7,11,11,14,10,8,22]}
+  ]);
+}
+$('btn-xlsx').addEventListener('click',function(){
+  try{
+    var blob=buildWorkbook();
+    window.__xlsxBlob=blob;                 // 便于外部取用
+    if(!saveOut('工时打卡_'+keyOf()+'.xlsx',blob))toast('已导出 Excel（两个工作表）');
+  }catch(e){toast('导出失败：'+e.message);}
+});
+
+/* 导出：APK 里走原生保存到「下载」目录，浏览器里走下载 */
+function saveOut(name, content, mime){
+  var blob=(content instanceof Blob)?content:new Blob([content],{type:mime||'application/octet-stream'});
+  if(NATIVE&&Minis.saveFile){
+    try{
+      var fr=new FileReader();
+      fr.onload=function(){
+        var s=String(fr.result), i=s.indexOf(',');
+        try{ Minis.saveFile(name, i>=0?s.slice(i+1):s); }catch(e){ toast('保存失败'); }
+      };
+      fr.onerror=function(){toast('导出失败');};
+      fr.readAsDataURL(blob);
+    }catch(e){toast('导出失败：'+e.message);}
+    return false;
+  }
+  dl(name, blob);
+  return false;
+}
+
+function dl(name,content,type){
+  try{
+    var blob = (content instanceof Blob) ? content : new Blob([content],{type:type||'text/plain;charset=utf-8'});
+    var a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);a.download=name;
+    document.body.appendChild(a);a.click();
+    setTimeout(function(){URL.revokeObjectURL(a.href);a.remove();},1000);
+  }catch(e){toast('下载失败，可用「复制备份」');}
+}
+function csvData(){
+  var ks=Object.keys(DB.records).sort();
+  var out=[['日期','星期','段数','上班时段','工时(小时)','加班时段','加班(小时)','休息日','备注']];
+  ks.forEach(function(k){
+    var r=DB.records[k],c=calc(k,r);
+    var segTxt=c.det.map(function(d){return (d.inRaw||'--')+'-'+(d.outRaw||'--');}).join(' / ');
+    var otTxt=c.ranges.map(function(x){return fmtT(x.start)+'-'+fmtT(x.end);}).join(' / ');
+    out.push([k,wdName(k),c.count,segTxt,(c.work/60).toFixed(2),otTxt,
+      (c.ot/60).toFixed(2),c.rest?'是':'',(r.note||'').replace(/[\n,]/g,' ')]);
+  });
+  return '\ufeff'+out.map(function(r){return r.join(',');}).join('\r\n');
+}
+$('btn-csv').addEventListener('click',function(){if(!saveOut('工时打卡_'+keyOf()+'.csv',csvData(),'text/csv;charset=utf-8'))toast('已导出 CSV');});
+$('btn-json').addEventListener('click',function(){if(!saveOut('工时打卡备份_'+keyOf()+'.json',JSON.stringify(DB,null,1),'application/json'))toast('已导出备份');});
+$('btn-copy').addEventListener('click',function(){
+  var txt=JSON.stringify(DB);
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(txt).then(function(){toast('备份已复制到剪贴板');},function(){toast('复制失败');});
+  }else{toast('当前环境不支持复制');}
+});
+$('btn-import').addEventListener('click',function(){
+  var inp=document.createElement('input');inp.type='file';inp.accept='.json,application/json';
+  inp.addEventListener('change',function(){
+    var f=inp.files&&inp.files[0];if(!f)return;
+    var fr=new FileReader();
+    fr.onload=function(){
+      try{
+        var d=JSON.parse(fr.result);
+        var n=Object.keys(d.records||{}).length;
+        if(!confirm('导入 '+n+' 条记录，将覆盖当前数据，确定？'))return;
+        DB={settings:Object.assign({},DEF.settings,d.settings||{}),records:d.records||{}};
+        save();loadSettingsUI();loadToday();render();toast('导入成功');
+      }catch(e){toast('文件格式不对');}
+    };
+    fr.readAsText(f);
+  });
+  inp.click();
+});
+$('btn-clear').addEventListener('click',function(){
+  if(!confirm('清空所有打卡记录？此操作不可撤销。'))return;
+  DB.records={};save();loadSettingsUI();loadToday();render();toast('已清空');
+});
+
+/* ---------------- 渲染总入口 ---------------- */
+function render(){
+  if(curPage==='today'){loadToday();refreshTodayUI();}
+  else if(curPage==='list')renderList();
+  else if(curPage==='stats')renderStats();
+  else loadSettingsUI();
+}
+
+/* ---------------- 时钟 ---------------- */
+function tick(){
+  var d=new Date();
+  $('liveclock').textContent=pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds());
+  if(curPage==='today')refreshTodayUI();
+  if(keyOf()!==todayKey){loadToday();refreshTodayUI();}
+}
+window.addEventListener('resize',function(){if(curPage==='stats')drawChart();});
+
+/* ---------------- 启动 ---------------- */
+loadToday();
+refreshTodayUI();
+render();
+tick();
+setInterval(tick,1000);
+})();
+</script>
+
+<script>
+/* 离线可用：仅在 http(s) 环境下注册 Service Worker */
+(function(){
+  if(!('serviceWorker' in navigator))return;
+  if(!/^https?:$/.test(location.protocol))return;
+  window.addEventListener('load',function(){
+    navigator.serviceWorker.register('./sw.js').catch(function(){});
+  });
+})();
+</script>
+</body>
+</html>
